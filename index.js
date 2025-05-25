@@ -8,35 +8,30 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: "*", // Разрешить все источники (только для разработки!)
-    methods: ["GET", "POST"]
-  }
+    origin: "*",
+    methods: ["GET", "POST"],
+  },
 });
 
 app.use(cors());
 
-// Храним текущий номер страницы (в оперативной памяти)
 let currentPage = 0;
 
 app.get("/", (req, res) => {
-  res.send("Socket.IO Flipbook Server Running ✅");
+  res.send("✅ Flipbook WebSocket Server is running");
 });
 
 io.on("connection", (socket) => {
   console.log(`📡 Client connected: ${socket.id}`);
 
-  // ➤ Отправляем текущую страницу сразу после подключения
+  // При подключении отправляем текущую страницу
   socket.emit("page-flip", currentPage);
 
-  // ➤ Слушаем события перелистывания от "reader"
+  // Обработка перелистывания
   socket.on("page-flip", (pageNumber) => {
-    console.log(`🔁 Page flip to: ${pageNumber} from ${socket.id}`);
-
-    // Обновляем глобальное значение
+    console.log(`🔁 Flip to page ${pageNumber} from ${socket.id}`);
     currentPage = pageNumber;
-
-    // Рассылаем другим клиентам
-    socket.broadcast.emit("page-flip", pageNumber);
+    socket.broadcast.emit("page-flip", pageNumber); // Рассылаем всем, кроме отправителя
   });
 
   socket.on("disconnect", () => {
@@ -44,7 +39,6 @@ io.on("connection", (socket) => {
   });
 });
 
-// Запуск сервера
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
   console.log(`🚀 WebSocket server running on http://localhost:${PORT}`);
