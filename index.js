@@ -37,12 +37,17 @@ io.on("connection", (socket) => {
     }
   });
 
-    socket.on("page-flip", (pageNumber) => {
+  socket.on("page-flip", (pageNumber) => {
     currentPage = pageNumber;
-    io.emit("page-flip", pageNumber);  // send to all clients, including sender
+    io.emit("page-flip", pageNumber);
     console.log(`🔁 Flip to page ${pageNumber} from ${socket.id}`);
-    });
+  });
 
+  socket.on("reset-page", () => {
+    currentPage = 0;
+    io.emit("page-flip", 0);
+    console.log("🔄 Page reset to 0 by reset-page event");
+  });
 
   socket.on("disconnect", () => {
     console.log(`❌ Client disconnected: ${socket.id}`);
