@@ -28,12 +28,10 @@ io.on("connection", (socket) => {
     console.log(`👤 ${socket.id} joined as ${role}`);
 
     if (role === "reader") {
-      // если reader перезагрузил — обнуляем всем
       currentPage = 0;
-      io.emit("page-flip", 0); // всем
+      io.emit("page-flip", 0);
       console.log("🔄 Reset page to 0 for all (reader joined)");
     } else {
-      // viewer просто получает текущую страницу
       socket.emit("page-flip", currentPage);
       console.log(`➡ Sending current page (${currentPage}) to viewer`);
     }
