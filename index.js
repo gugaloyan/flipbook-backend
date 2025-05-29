@@ -1,60 +1,228 @@
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const cors = require("cors");
+import React, { useState, useRef, useEffect } from "react";
+import "./App.css";
+import { Document, Page, pdfjs } from "react-pdf";
+import HTMLFlipBook from "react-pageflip";
+import { io } from "socket.io-client";
 
-const app = express();
-const server = http.createServer(app);
+import "react-pdf/dist/Page/AnnotationLayer.css";
+import "react-pdf/dist/Page/TextLayer.css";
 
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
-  },
-});
+pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs`;
 
-app.use(cors());
+type Role = "reader" | "viewer";
 
-let currentPage = 0;
+const socket = io("https://flipbook-backend-1.onrender.com");
 
-app.get("/", (req, res) => {
-  res.send("📘 Flipbook server working");
-});
+const App = () => {
+  const [role, setRole] = useState<Role>("viewer");
+  const [numPages, setNumPages] = useState(0);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [pdfFile, setPdfFile] = useState<any>(null);
+  const [pdfText, setPdfText] = useState<Record<number, string>>({});
+  const [pageText, setPageText] = useState("");
+  const flipBookRef = useRef<any>(null);
+  const isFlipping = useRef(false);
+  const hasInit = useRef(false);
 
-io.on("connection", (socket) => {
-  console.log(`📡 Client connected: ${socket.id}`);
+  const roleRef = useRef<Role>("viewer");
+  useEffect(() => {
+    roleRef.current = role;
+  }, [role]);
 
-  socket.on("join", (role) => {
-    console.log(`👤 ${socket.id} joined as ${role}`);
+  const handleBookInit = () => {
+    hasInit.current = true;
 
-    if (role === "reader") {
-      currentPage = 0;
-      io.emit("page-flip", 0);
-      console.log("🔄 Reset page to 0 for all (reader joined)");
-    } else {
-      socket.emit("page-flip", currentPage);
-      console.log(`➡ Sending current page (${currentPage}) to viewer`);
+    // после полной инициализации книги делаем переход на нужную страницу
+    const flipBook = flipBookRef.current?.pageFlip();
+    if (flipBook && typeof flipBook.flip === "function") {
+      flipBook.flip(currentPage);
     }
-  });
+  };
 
-  socket.on("page-flip", (pageNumber) => {
-    currentPage = pageNumber;
-    io.emit("page-flip", pageNumber);
-    console.log(`🔁 Flip to page ${pageNumber} from ${socket.id}`);
-  });
+  const onDocumentLoadSuccess = (pdf: any) => {
+    setNumPages(pdf.numPages);
+    setPdfFile(pdf);
+  };
 
-  socket.on("reset-page", () => {
-    currentPage = 0;
-    io.emit("page-flip", 0);
-    console.log("🔄 Page reset to 0 by reset-page event");
-  });
+  const fetchPageText = async (pageIndex: number) => {
+    if (!pdfFile) return;
+    try {
+      const page = await pdfFile.getPage(pageIndex + 1);
+      const content = await page.getTextContent();
+      const strings = content.items.map((item: any) => item.str);
+      const text = strings.join(" ");
+      setPdfText((prev) => ({ ...prev, [pageIndex]: text }));
+    } catch (error) {
+      console.error("Ошибка при извлечении текста:", error);
+    }
+  };
 
-  socket.on("disconnect", () => {
-    console.log(`❌ Client disconnected: ${socket.id}`);
-  });
-});
+  useEffect(() => {
+    if (pdfFile && currentPage >= 0 && currentPage < numPages && !pdfText[currentPage]) {
+      fetchPageText(currentPage);
+    }
+  }, [currentPage, pdfFile, pdfText, numPages]);
 
-const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => {
-  console.log(`🚀 WebSocket server running on http://localhost:${PORT}`);
-});
+  useEffect(() => {
+    if (pdfText[currentPage]) {
+      setPageText(pdfText[currentPage]);
+    }
+  }, [currentPage, pdfText]);
+
+  const speakText = (text: string) => {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "en-US";
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const toggleRole = () => {
+    setRole((prev) => (prev === "viewer" ? "reader" : "viewer"));
+  };
+
+  const flipPrev = () => {
+    flipBookRef.current?.pageFlip().flipPrev();
+    window.speechSynthesis.cancel();
+  };
+
+  const flipNext = () => {
+    flipBookRef.current?.pageFlip().flipNext();
+    window.speechSynthesis.cancel();
+  };
+
+  const isReader = role === "reader";
+
+  // Обработка входящего события page-flip
+  useEffect(() => {
+    const handlePageFlip = (page: number) => {
+      console.log("📥 Received flip:", page);
+
+      const flipBook = flipBookRef.current?.pageFlip();
+      if (!flipBook || !hasInit.current) return;
+
+      if (flipBook.getCurrentPageIndex() !== page) {
+        isFlipping.current = true;
+        flipBook.flip(page);
+        setCurrentPage(page);
+      }
+    };
+
+    socket.on("page-flip", handlePageFlip);
+
+    return () => {
+      socket.off("page-flip", handlePageFlip);
+    };
+  }, []);
+
+  // Отправка сброса страницы от reader
+  useEffect(() => {
+    if (role === "reader") {
+      const timer = setTimeout(() => {
+        if (socket.connected) {
+          socket.emit("reset-page");
+        }
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [role]);
+
+  return (
+    <div className="App">
+      <h1>📖 Interactive Book</h1>
+
+      <button
+        onClick={toggleRole}
+        style={{
+          position: "fixed",
+          top: 10,
+          right: 10,
+          zIndex: 999,
+          padding: "8px 12px",
+        }}
+      >
+        Role: {role}
+      </button>
+
+      <Document
+        file="/book.pdf"
+        onLoadSuccess={onDocumentLoadSuccess}
+        loading={<p>Loading PDF...</p>}
+        error={<p>Failed to load PDF</p>}
+      >
+        <HTMLFlipBook
+          key={role}
+          width={400}
+          height={600}
+          ref={flipBookRef}
+          className="flip-book"
+          size="fixed"
+          startPage={0}
+          minWidth={315}
+          maxWidth={1000}
+          minHeight={400}
+          maxHeight={1536}
+          drawShadow
+          flippingTime={1000}
+          usePortrait
+          autoSize
+          clickEventForward
+          useMouseEvents={false}
+          swipeDistance={30}
+          showPageCorners
+          disableFlipByClick={!isReader}
+          style={{ margin: "0 auto" }}
+          maxShadowOpacity={0.5}
+          showCover={false}
+          mobileScrollSupport
+          onInit={handleBookInit}
+          onFlip={(e) => {
+            const page = Number(e.data);
+            if (!isNaN(page)) {
+              setCurrentPage(page);
+              setPageText("");
+
+              if (role === "reader" && !isFlipping.current) {
+                socket.emit("page-flip", page);
+                console.log("📤 Emit page flip:", page);
+              }
+
+              isFlipping.current = false;
+              window.speechSynthesis.cancel();
+            }
+          }}
+        >
+          {Array.from(new Array(numPages), (_, i) => (
+            <div key={i} className="page">
+              <Page
+                pageNumber={i + 1}
+                width={380}
+                loading={<p>Loading page {i + 1}...</p>}
+              />
+            </div>
+          ))}
+        </HTMLFlipBook>
+      </Document>
+
+      {isReader && (
+        <div className="controls">
+          <button onClick={flipPrev}>⬅ Prev</button>
+          <button onClick={flipNext}>Next ➡</button>
+          <button
+            onClick={() =>
+              speakText(pageText.trim() || `Page ${currentPage + 1} content is loading...`)
+            }
+            disabled={!pageText.trim()}
+          >
+            🔊 Read Page {currentPage + 1}
+          </button>
+          <button onClick={() => window.speechSynthesis.cancel()}>
+            ⏹ Stop Reading
+          </button>
+          <span className="numPages">Pages {numPages}</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default App;
