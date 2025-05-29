@@ -34,11 +34,12 @@ io.on("connection", (socket) => {
     socket.broadcast.emit("page-flip", pageNumber); // Рассылаем всем, кроме отправителя
   });
 
-  socket.on("reset-page", () => {
-  console.log(`🔄 Page reset to 0 from ${socket.id}`);
-  currentPage = 0;
-  socket.broadcast.emit("page-flip", 0); // всем, кроме отправителя
-});
+    socket.on("reset-page", () => {
+    console.log(`🔄 Page reset to 0 from ${socket.id}`);
+    currentPage = 0;
+    io.emit("page-flip", 0); // всем, включая отправителя
+    });
+
 
 
   socket.on("disconnect", () => {
