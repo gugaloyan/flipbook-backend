@@ -18,29 +18,32 @@ app.use(cors());
 let currentPage = 0;
 
 app.get("/", (req, res) => {
-  res.send("✅ Flipbook WebSocket Server is running");
+  res.send("📘 Flipbook server working");
 });
 
 io.on("connection", (socket) => {
   console.log(`📡 Client connected: ${socket.id}`);
 
-  // При подключении отправляем текущую страницу
-  socket.emit("page-flip", currentPage);
+  socket.on("join", (role) => {
+    console.log(`👤 ${socket.id} joined as ${role}`);
 
-  // Обработка перелистывания
-  socket.on("page-flip", (pageNumber) => {
-    console.log(`🔁 Flip to page ${pageNumber} from ${socket.id}`);
-    currentPage = pageNumber;
-    socket.broadcast.emit("page-flip", pageNumber); // Рассылаем всем, кроме отправителя
+    if (role === "reader") {
+      // если reader перезагрузил — обнуляем всем
+      currentPage = 0;
+      io.emit("page-flip", 0); // всем
+      console.log("🔄 Reset page to 0 for all (reader joined)");
+    } else {
+      // viewer просто получает текущую страницу
+      socket.emit("page-flip", currentPage);
+      console.log(`➡ Sending current page (${currentPage}) to viewer`);
+    }
   });
 
-    socket.on("reset-page", () => {
-    console.log(`🔄 Page reset to 0 from ${socket.id}`);
-    currentPage = 0;
-    io.emit("page-flip", 0); // всем, включая отправителя
-    });
-
-
+  socket.on("page-flip", (pageNumber) => {
+    currentPage = pageNumber;
+    socket.broadcast.emit("page-flip", pageNumber);
+    console.log(`🔁 Flip to page ${pageNumber} from ${socket.id}`);
+  });
 
   socket.on("disconnect", () => {
     console.log(`❌ Client disconnected: ${socket.id}`);
